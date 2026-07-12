@@ -4,8 +4,8 @@
 
 ## Product flow (confirmed)
 
-1. Brand pastes their **URL** (existing brand, LocalAds-style). Auth → tenant.
-2. At **onboarding**, the orchestrator spawns the **Brand Strategist**, which researches the brand and writes a brand profile ("Business DNA") to per-tenant memory (Honcho).
+1. Brand gives a **URL (or docs, a photo, or nothing)**. Auth → tenant.
+2. At **onboarding**, the orchestrator spawns the **Brand Strategist**, which auto-researches the brand, then runs a short **intake interview** to fill gaps, and writes a brand profile ("Business DNA") + guardrails to per-tenant memory (Honcho).
 3. Brand Strategist returns a **first report**: current positioning, voice/tone, visual identity, audience, channels, and **what to improve**.
 4. **Competitor Analyst** pulls competitors and their top-performing content (Linkup) to set a real baseline.
 5. **Content Creator** generates on-brand content matched to the brand profile.
@@ -16,12 +16,25 @@
 ## Declared job (what we complete end to end)
 **Take a brand URL and publish an on-brand piece of content to a real surface, then measure it.** Research/audit/competitor are the upstream specialists that feed the publish. The published post is the 20x "real output."
 
+## Onboarding intake (interview)
+
+The user can give a URL, docs, a photo, or nothing. The Brand Strategist runs a short intake, conversational, inside the orchestrator chat.
+
+Rules (keep it fast, keep it scoring):
+- **Research first, ask second.** Auto-scrape the URL, then ask only what could not be inferred. Never ask what you already scraped.
+- **Bounded:** max ~5 questions, adaptive, each with a smart default and a skip. No open-ended loop (protects the cost/latency score).
+- **Capture:** goals, target audience, what to promote now, tone do's and don'ts, hard guardrails (never-say, banned claims), connected channels.
+- **Write** answers into the tenant's brand profile + guardrails in memory (Honcho). This is the "business rules" memory layer (memory L5) and the content agents' constraints.
+- Conversational intake also demos the "chat with the agency" UX (management surface).
+
+Output: a complete brand profile the specialists read. One-time at onboarding, editable later.
+
 ## The roster: orchestrator + 5 specialists
 
 | Agent | Job | Key inputs | Output (artifact) | Tools / MCP | Memory | Rubric it drives |
 |---|---|---|---|---|---|---|
 | **Orchestrator** (manager) | Chats with user, plans subtasks per request, spawns specialists, reviews outputs, escalates by exception | user message, brand profile | plan + delegated results | subagent spawn | reads brand profile | Org structure (5x), handoffs (2x) |
-| **Brand Strategist** | Research the brand + audit current voice + suggest improvements (folds in positioning/idea check) | brand URL | brand profile written to memory + first report | web fetch, Linkup | **writes** brand DNA + guardrails | Real output (report), memory (2x) |
+| **Brand Strategist** | Auto-research the brand + run onboarding intake interview + audit current voice + suggest improvements (folds in positioning/idea check) | brand URL/docs + interview answers | brand profile + guardrails written to memory + first report | web fetch, Linkup | **writes** brand DNA + guardrails | Real output (report), memory (2x) |
 | **Competitor Analyst** | Find competitors + their top-performing content; set a performance baseline | brand profile, niche | competitor baseline | Linkup (+25) | reads brand, writes baseline | Real output, feeds eval |
 | **Content Creator** | Generate on-brand content matched to the profile (text + image + brand voice) | brand profile, baseline | draft content pieces | image gen, ElevenLabs (+25) | reads brand DNA | Real output (20x) |
 | **Publisher** | Post approved content to a real surface | approved content | **real published post URL** | X MCP / blog API, per-tenant creds | reads connected account | **Real output (20x)** |
