@@ -187,24 +187,32 @@ class TestContentJobAndStream:
         )
         job_id = content_resp.json()["job_id"]
 
+        # Let the stream run to its OWN natural end (no client-side early
+        # break on "final"/"error") -- proves the stream terminates on the
+        # job-level "job_complete"/"job_failed" event, not the worker's own.
+        event_types: list[str] = []
         with client.stream(
             "GET", f"/v1/jobs/{job_id}/stream", headers=headers
         ) as stream_resp:
             assert stream_resp.status_code == 200
             assert "text/event-stream" in stream_resp.headers["content-type"]
 
-            event_types: list[str] = []
             for raw_line in stream_resp.iter_lines():
                 if not raw_line or not raw_line.startswith("data:"):
                     continue
                 payload = json.loads(raw_line[len("data:"):].strip())
                 event_types.append(payload["type"])
-                if payload["type"] in ("final", "error"):
-                    break
 
         assert "step" in event_types
-        assert event_types[-1] in ("final", "error")
+        assert event_types[-1] in ("job_complete", "job_failed")
         assert event_types.index("step") < len(event_types) - 1 or event_types[-1] == "step"
+
+        # The stream ended on its own, so the job must already be terminal --
+        # proves finding 3: no race where a client that ends the stream sees
+        # stale "running" from GET /jobs/{id}.
+        status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
+        assert status_resp.status_code == 200
+        assert status_resp.json()["status"] == "done"
 
     def test_job_reaches_done_status(self, client: TestClient, rsa_keypair) -> None:
         headers = _auth_headers(rsa_keypair, sub="tenant-a")
@@ -221,7 +229,7 @@ class TestContentJobAndStream:
             for raw_line in stream_resp.iter_lines():
                 if raw_line.startswith("data:"):
                     payload = json.loads(raw_line[len("data:"):].strip())
-                    if payload["type"] in ("final", "error"):
+                    if payload["type"] in ("job_complete", "job_failed"):
                         break
 
         status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)

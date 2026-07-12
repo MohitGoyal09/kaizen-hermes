@@ -132,11 +132,14 @@ def _run_content_job(
         _record_generated_content(content_store, record, job, request_body)
 
         job_store.mark_done(job, {"brand_id": record.brand_id})
+        terminal = {"type": "job_complete", "data": {"status": "done", "brand_id": record.brand_id}}
+        job_store.append_event(job, terminal)
+        loop.call_soon_threadsafe(job.queue.put_nowait, terminal)
     except Exception as exc:  # noqa: BLE001 - job must always terminate, never hang the stream
         job_store.mark_failed(job, str(exc))
-        error_event = {"type": "error", "data": {"message": str(exc)}}
-        job_store.append_event(job, error_event)
-        loop.call_soon_threadsafe(job.queue.put_nowait, error_event)
+        terminal = {"type": "job_failed", "data": {"message": str(exc)}}
+        job_store.append_event(job, terminal)
+        loop.call_soon_threadsafe(job.queue.put_nowait, terminal)
     finally:
         loop.call_soon_threadsafe(job.queue.put_nowait, STREAM_DONE)
 

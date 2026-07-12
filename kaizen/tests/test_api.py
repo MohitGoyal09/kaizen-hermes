@@ -177,7 +177,7 @@ class TestGetBrandNotFound:
 
 
 class TestOnboardingJobAndStream:
-    def test_onboard_enqueues_job_and_stream_yields_step_then_final(
+    def test_onboard_enqueues_job_and_stream_yields_step_then_job_complete(
         self, client: TestClient, rsa_keypair
     ) -> None:
         headers = _auth_headers(rsa_keypair, sub="tenant-a")
@@ -191,13 +191,16 @@ class TestOnboardingJobAndStream:
         assert onboard_resp.status_code == 202
         job_id = onboard_resp.json()["job_id"]
 
+        # Let the stream run to its OWN natural end (no client-side early
+        # break on "final") -- this is what proves the stream terminates on
+        # the job-level "job_complete" event, not the worker's "final".
+        event_types: list[str] = []
         with client.stream(
             "GET", f"/v1/jobs/{job_id}/stream", headers=headers
         ) as stream_resp:
             assert stream_resp.status_code == 200
             assert "text/event-stream" in stream_resp.headers["content-type"]
 
-            event_types: list[str] = []
             for raw_line in stream_resp.iter_lines():
                 if not raw_line:
                     continue
@@ -205,12 +208,19 @@ class TestOnboardingJobAndStream:
                     continue
                 payload = json.loads(raw_line[len("data:"):].strip())
                 event_types.append(payload["type"])
-                if payload["type"] in ("final", "error"):
-                    break
 
         assert "step" in event_types
         assert "final" in event_types
+        assert event_types[-1] == "job_complete"
         assert event_types.index("step") < event_types.index("final")
+        assert event_types.index("final") < event_types.index("job_complete")
+
+        # The stream has now ended on its own (not a client-side break), so
+        # the job must already be "done" -- proves finding 3: no race where
+        # a client that ends the stream sees stale "running" from GET /jobs/{id}.
+        status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
+        assert status_resp.status_code == 200
+        assert status_resp.json()["status"] == "done"
 
     def test_job_status_endpoint_reaches_done(self, client: TestClient, rsa_keypair) -> None:
         headers = _auth_headers(rsa_keypair, sub="tenant-a")
@@ -223,12 +233,13 @@ class TestOnboardingJobAndStream:
         job_id = onboard_resp.json()["job_id"]
 
         # Drain the stream to completion first (deterministic wait for the
-        # background job instead of a timing-based sleep loop).
+        # background job instead of a timing-based sleep loop). Let it end
+        # naturally on the job-level terminal rather than breaking early.
         with client.stream("GET", f"/v1/jobs/{job_id}/stream", headers=headers) as stream_resp:
             for raw_line in stream_resp.iter_lines():
                 if raw_line.startswith("data:"):
                     payload = json.loads(raw_line[len("data:"):].strip())
-                    if payload["type"] in ("final", "error"):
+                    if payload["type"] in ("job_complete", "job_failed"):
                         break
 
         status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
@@ -279,7 +290,7 @@ class TestOnboardingJobAndStream:
             for raw_line in stream_resp.iter_lines():
                 if raw_line.startswith("data:"):
                     payload = json.loads(raw_line[len("data:"):].strip())
-                    if payload["type"] in ("final", "error"):
+                    if payload["type"] in ("job_complete", "job_failed"):
                         break
 
         headers_b = _auth_headers(rsa_keypair, sub="tenant-b")
@@ -306,7 +317,7 @@ class TestOnboardingJobAndStream:
             for raw_line in stream_resp.iter_lines():
                 if raw_line.startswith("data:"):
                     payload = json.loads(raw_line[len("data:"):].strip())
-                    if payload["type"] in ("final", "error"):
+                    if payload["type"] in ("job_complete", "job_failed"):
                         break
 
         response = client.get(f"/v1/jobs/{job_id}/stream")

@@ -31,7 +31,7 @@ router = APIRouter(prefix="/v1/brands", tags=["brands"])
 
 _PERSONAS_DIR = Path(__file__).resolve().parents[1] / "personas"
 _BRAND_STRATEGIST_PERSONA = _PERSONAS_DIR / "brand_strategist.md"
-_ONBOARDING_TOOLSETS = ["file"]
+_ONBOARDING_TOOLSETS = ["web", "file"]
 
 
 class CreateBrandRequest(BaseModel):
@@ -133,7 +133,12 @@ def _run_onboarding_job(job_store: JobStore, brand_store: BrandStore, job, recor
             tenant_id=record.tenant_id,
             home=record.home,
             persona_path=_BRAND_STRATEGIST_PERSONA,
-            user_message=f"Onboard the brand at {record.url}.",
+            user_message=(
+                f"Onboard the brand at {record.url}. Research the site with your web tools, "
+                "infer positioning, voice/tone, audience, do's, don'ts, guardrails and channels, "
+                "and WRITE the complete brand DNA to AGENTS.md now using the file tool. This is an "
+                "automated run: do NOT ask the user questions -- use smart defaults from your research."
+            ),
             toolsets=_ONBOARDING_TOOLSETS,
             on_event=on_event,
         )
@@ -145,11 +150,14 @@ def _run_onboarding_job(job_store: JobStore, brand_store: BrandStore, job, recor
         sync_brand_profile(record.brand_id, updated_profile)
 
         job_store.mark_done(job, {"brand_id": record.brand_id})
+        terminal = {"type": "job_complete", "data": {"status": "done", "brand_id": record.brand_id}}
+        job_store.append_event(job, terminal)
+        loop.call_soon_threadsafe(job.queue.put_nowait, terminal)
     except Exception as exc:  # noqa: BLE001 - job must always terminate, never hang the stream
         job_store.mark_failed(job, str(exc))
-        error_event = {"type": "error", "data": {"message": str(exc)}}
-        job_store.append_event(job, error_event)
-        loop.call_soon_threadsafe(job.queue.put_nowait, error_event)
+        terminal = {"type": "job_failed", "data": {"message": str(exc)}}
+        job_store.append_event(job, terminal)
+        loop.call_soon_threadsafe(job.queue.put_nowait, terminal)
     finally:
         loop.call_soon_threadsafe(job.queue.put_nowait, STREAM_DONE)
 
