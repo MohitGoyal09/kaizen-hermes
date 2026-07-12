@@ -71,20 +71,53 @@ So: **log in once (Convex Auth) → the resulting JWT authenticates the frontend
 
 ---
 
-## How to run locally
+## How to run the backend — A to Z
+
+**Prerequisites:** Python 3.14, Node 18+ (for `npx convex`), git. Run all paths from the repo root unless noted.
+
 ```bash
-# 1. Convex (functions + auth issuer + JWKS). Keep this running.
-cd convex && CONVEX_AGENT_MODE=anonymous npx convex dev     # local; or `npx convex dev` for cloud (logged in)
+# ── 0. Clone ──────────────────────────────────────────────────────────────
+git clone https://github.com/MohitGoyal09/kaizen-hermes.git
+cd kaizen-hermes
 
-# 2. Env: fill /Users/…/hermes-agent/.env  (git-ignored) — see the table below.
+# ── 1. Python deps ────────────────────────────────────────────────────────
+# Hermes base (the vendored agent the worker imports):
+pip install -e .                       # or: uv sync
+# Kaizen backend deps (not in Hermes' pyproject):
+pip install fastapi uvicorn httpx "pyjwt[crypto]" pydantic pyyaml
 
-# 3. FastAPI backend
-cd /path/to/hermes-agent
+# ── 2. Convex (DB + auth issuer + JWKS). KEEP THIS TERMINAL RUNNING ───────
+cd convex
+npm install
+# LOCAL (no login, fastest):
+CONVEX_AGENT_MODE=anonymous npx convex dev
+#   → deploys functions, writes convex/.env.local (CONVEX_URL/SITE_URL/DEPLOYMENT),
+#     serves JWKS at CONVEX_SITE_URL/.well-known/jwks.json.
+# CLOUD (logged in) instead: `npx convex dev`  (rewrites .env.local to *.convex.cloud/.site)
+# Then generate the JWT signing keys the auth issuer needs (one time per deployment):
+npx @convex-dev/auth        # sets JWT_PRIVATE_KEY / JWKS / SITE_URL on the deployment
+cd ..
+
+# ── 3. Env ────────────────────────────────────────────────────────────────
+cp kaizen/.env.example .env             # root .env is git-ignored
+# Fill in (see the env table below): OPENAI_API_KEY, HONCHO_API_KEY, HONCHO_BASE_URL.
+# Mirror the CONVEX_URL / CONVEX_SITE_URL / CONVEX_DEPLOYMENT from convex/.env.local into .env,
+# and set:  CONVEX_JWT_ISSUER=$CONVEX_SITE_URL   CONVEX_JWKS_URL=$CONVEX_SITE_URL/.well-known/jwks.json
+# LLM (confirmed working): HERMES_INFERENCE_PROVIDER=openai-api  HERMES_INFERENCE_MODEL=gpt-5-mini
+
+# ── 4. Run the FastAPI backend ────────────────────────────────────────────
 uvicorn kaizen.api.main:app --host 127.0.0.1 --port 8000 --reload
 
-# 4. Tests
-python3 -m pytest kaizen/tests/ -v        # 59 green
+# ── 5. Verify ─────────────────────────────────────────────────────────────
+curl http://127.0.0.1:8000/healthz              # -> {"status":"ok"} (or similar)
+python3 -m pytest kaizen/tests/ -v              # 59 passing
+
+# ── 6. (Optional) live agent smoke, no HTTP ──────────────────────────────
+# provision a tenant + run one turn directly via worker_pool.submit_turn
+# (see kaizen/API.md for the equivalent HTTP flow: POST /v1/brands -> /onboard -> /jobs/{id}/stream)
 ```
+
+> Keep **two terminals**: one for `npx convex dev` (must stay up — it's the DB + JWKS), one for `uvicorn`. The worker inherits the root `.env`, so `OPENAI_API_KEY` + `HERMES_INFERENCE_*` reach every agent automatically.
 
 ## Environment variables (root `.env`, git-ignored)
 | Var | Who fills | How to get it |
