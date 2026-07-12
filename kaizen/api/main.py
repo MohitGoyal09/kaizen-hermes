@@ -21,11 +21,13 @@ from kaizen.api.brand_store import BrandStore
 from kaizen.api.campaign_store import CampaignStore
 from kaizen.api.content_store import ContentStore
 from kaizen.api.job_store import JobStore
+from kaizen.api.publish_store import PublishStore
 
 brand_store = BrandStore()
 campaign_store = CampaignStore()
 content_store = ContentStore()
 job_store = JobStore()
+publish_store = PublishStore()
 
 app = FastAPI(title="Kaizen Control Plane", version="0.1.0")
 
@@ -53,12 +55,19 @@ app.add_middleware(
 
 
 def _register_routes(fastapi_app: FastAPI) -> None:
-    from kaizen.api import routes_brands, routes_content, routes_dashboard, routes_jobs
+    from kaizen.api import (
+        routes_brands,
+        routes_content,
+        routes_dashboard,
+        routes_jobs,
+        routes_publish,
+    )
 
     fastapi_app.include_router(routes_brands.router)
     fastapi_app.include_router(routes_content.router)
     fastapi_app.include_router(routes_dashboard.router)
     fastapi_app.include_router(routes_jobs.router)
+    fastapi_app.include_router(routes_publish.router)
 
 
 _register_routes(app)
