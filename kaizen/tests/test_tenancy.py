@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from kaizen.profile import BrandProfile
@@ -86,6 +87,33 @@ class TestRenderHome:
         assert (tmp_path / "SOUL.md").read_text(encoding="utf-8") == first_soul
         assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == first_agents
         assert (tmp_path / "config.yaml").read_text(encoding="utf-8") == first_config
+
+
+class TestProvisionTenantPathSafety:
+    def test_rejects_brand_id_with_parent_directory_traversal(self, tmp_path: Path) -> None:
+        """brand_id must never be able to escape base_dir via '../' segments.
+
+        CLAUDE.md's ground rule R5/R7 says tenant id comes from a validated
+        auth token, never a client-supplied field -- but provision_tenant is
+        the actual filesystem isolation boundary between tenants, so it must
+        not trust its caller either (defense in depth). Without this check,
+        a brand_id of "../../etc/evil" writes SOUL.md/AGENTS.md/config.yaml
+        outside base_dir entirely.
+        """
+        profile = _sample_profile(brand_id="../../etc/evil")
+        with pytest.raises(ValueError):
+            provision_tenant("../../etc/evil", profile, base_dir=tmp_path)
+
+    def test_rejects_brand_id_that_is_an_absolute_path(self, tmp_path: Path) -> None:
+        profile = _sample_profile(brand_id="/etc/evil")
+        with pytest.raises(ValueError):
+            provision_tenant("/etc/evil", profile, base_dir=tmp_path)
+
+    def test_accepts_realistic_slug_brand_id(self, tmp_path: Path) -> None:
+        profile = _sample_profile(brand_id="acme-widgets-2")
+        home = provision_tenant("acme-widgets-2", profile, base_dir=tmp_path)
+        assert home == tmp_path / "acme-widgets-2"
+        assert home.resolve().parent == tmp_path.resolve()
 
 
 class TestProvisionTenant:

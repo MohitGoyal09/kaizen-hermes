@@ -25,6 +25,7 @@ writes files that Hermes already knows how to read.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -34,6 +35,28 @@ from kaizen.profile import BrandProfile, render_agents, render_soul
 
 DEFAULT_MODEL = "anthropic/claude-opus-4.6"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
+# brand_id becomes a path segment under base_dir (provision_tenant) -- it
+# must be a plain slug, never a path (no '/', no '..', no leading '.').
+# CLAUDE.md's ground rule R5/R7 says tenant id comes from a validated auth
+# token, never a client-supplied field, but provision_tenant is the actual
+# filesystem isolation boundary between tenants, so it must not trust its
+# caller either (defense in depth).
+_SAFE_BRAND_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,126}[A-Za-z0-9])?$")
+
+
+def _validate_brand_id(brand_id: str) -> None:
+    """Raise ``ValueError`` if ``brand_id`` is not a safe filesystem slug.
+
+    Rejects empty strings, path separators, ``..`` traversal, absolute
+    paths, and anything else that isn't a simple alphanumeric/-/_ slug.
+    """
+    if not _SAFE_BRAND_ID_RE.match(brand_id or ""):
+        raise ValueError(
+            f"invalid brand_id {brand_id!r}: must be a plain slug "
+            "matching ^[A-Za-z0-9][A-Za-z0-9_-]*[A-Za-z0-9]$ (1-128 chars), "
+            "no path separators or '..'"
+        )
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _REPO_SKILLS_DIR = _REPO_ROOT / "skills"
@@ -133,7 +156,13 @@ def provision_tenant(
     ``base_dir`` defaults to ``/data/hermes/profiles`` (the production
     volume mount from FOUNDATION_SLICE.md's Approach A) but is overridable
     so tests can provision into a tmp_path.
+
+    Raises ``ValueError`` if ``brand_id`` is not a safe filesystem slug
+    (rejects ``..`` traversal, absolute paths, and path separators) --
+    ``brand_id`` becomes a literal path segment below, so this is the
+    filesystem isolation wall between tenants and must not trust its caller.
     """
+    _validate_brand_id(brand_id)
     home = base_dir / brand_id
     home.mkdir(parents=True, exist_ok=True)
     render_home(profile, home)

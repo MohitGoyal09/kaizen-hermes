@@ -87,7 +87,21 @@ def submit_turn(
         line = line.strip()
         if not line:
             continue
-        event = json.loads(line)
+        # Hermes internals print several plain-text diagnostics straight to
+        # stdout that are NOT gated by quiet_mode -- most notably the Nous
+        # provider's 401-auth-failure retry/diagnostic prints in
+        # agent/conversation_loop.py (~2765-2788), which fire in exactly the
+        # "credentials missing/invalid" scenario this worker must degrade
+        # from, not crash on. A stray non-JSON line here must be skipped,
+        # not allowed to blow up the parent with an unrelated
+        # JSONDecodeError -- worker.py's own try/except already guarantees a
+        # terminating "error"/"final" JSON event either way.
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
         on_event(event)
         if event.get("type") == "final":
             final_data = event.get("data")
