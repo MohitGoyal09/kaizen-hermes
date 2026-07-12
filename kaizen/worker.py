@@ -100,13 +100,53 @@ def _run_live(hermes_home: Path, job: dict[str, Any]) -> None:
     importing kaizen.worker itself — never pulls in Hermes before
     HERMES_HOME is set. This mirrors hermes_cli/oneshot.py:_run_agent's
     local-import pattern (``:297-420``).
+
+    AIAgent.__init__ does NOT resolve a provider/api_key/base_url on its
+    own -- that resolution is done externally by every real caller. This
+    replicates the exact resolution oneshot.py:_run_agent performs at
+    ``hermes_cli/oneshot.py:314-373`` before it builds its AIAgent
+    (``:387-411``): load_config() -> compute the effective model (explicit
+    arg, which we don't have here / HERMES_INFERENCE_MODEL env /
+    cfg["model"]["default"]) -> resolve_runtime_provider(...) -> pass the
+    resolved dict's keys into AIAgent(...). Skipping this (the original bug)
+    leaves model="" and no provider/api_key/base_url, so the first live turn
+    fails immediately with "No LLM provider configured. Run hermes model...".
     """
+    from hermes_cli.config import load_config
+    from hermes_cli.runtime_provider import resolve_runtime_provider
     from run_agent import AIAgent
 
     persona_path = Path(job["persona_path"])
     persona_text = persona_path.read_text(encoding="utf-8")
     toolsets = job.get("toolsets") or []
     user_message = job["user_message"]
+
+    # Effective model: HERMES_INFERENCE_MODEL env -> cfg["model"]["default"]
+    # (oneshot.py:316-324; we have no per-call --model arg to prefer first).
+    # model_cfg may be a bare string (legacy) or a dict -- handle both, same
+    # as oneshot.py:317-321.
+    cfg = load_config() or {}
+    model_cfg = cfg.get("model") or {}
+    if isinstance(model_cfg, str):
+        cfg_model = model_cfg
+    else:
+        cfg_model = model_cfg.get("default") or model_cfg.get("model") or ""
+    env_model = os.environ.get("HERMES_INFERENCE_MODEL", "").strip()
+    effective_model = env_model or cfg_model
+
+    # Effective provider: HERMES_INFERENCE_PROVIDER env or cfg (oneshot.py
+    # leaves this to resolve_runtime_provider/resolve_requested_provider,
+    # which already implement the same explicit -> config -> env -> "auto"
+    # precedence internally). We don't auto-detect provider-from-model here
+    # (oneshot.py:334-367) because the worker never accepts an explicit
+    # --model override at call time -- the only model source is config/env,
+    # which resolve_requested_provider already reads.
+    requested_provider = os.environ.get("HERMES_INFERENCE_PROVIDER", "").strip() or None
+
+    runtime = resolve_runtime_provider(
+        requested=requested_provider,
+        target_model=effective_model or None,
+    )
 
     def _on_step(iteration: int, *_args: Any) -> None:
         _emit("step", {"iteration": iteration})
@@ -124,7 +164,12 @@ def _run_live(hermes_home: Path, job: dict[str, Any]) -> None:
         _emit("text_delta", {"delta": delta})
 
     agent = AIAgent(
-        model="",
+        api_key=runtime.get("api_key"),
+        base_url=runtime.get("base_url"),
+        provider=runtime.get("provider"),
+        api_mode=runtime.get("api_mode"),
+        model=effective_model,
+        credential_pool=runtime.get("credential_pool"),
         enabled_toolsets=toolsets,
         ephemeral_system_prompt=persona_text,
         quiet_mode=True,

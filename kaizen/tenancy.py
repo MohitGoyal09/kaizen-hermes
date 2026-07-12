@@ -25,6 +25,7 @@ writes files that Hermes already knows how to read.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -33,8 +34,15 @@ import yaml
 
 from kaizen.profile import BrandProfile, render_agents, render_soul
 
-DEFAULT_MODEL = "anthropic/claude-opus-4.6"
-DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+# Cheap OpenAI default: tenants are provisioned against our own OpenAI key,
+# not an OpenRouter/Anthropic pass-through (that combination has no matching
+# credential and burns real money on the expensive Opus tier if it ever *did*
+# resolve). Env-overridable so a specific deployment/test can point elsewhere
+# without editing source. See kaizen/worker.py:_run_live for the runtime
+# resolution that reads this (provider="openai-api" here + resolve_runtime_
+# provider both consult the same OPENAI_API_KEY env var to authenticate).
+DEFAULT_MODEL = os.environ.get("KAIZEN_MODEL", "gpt-4o-mini")
+DEFAULT_BASE_URL = os.environ.get("KAIZEN_MODEL_BASE_URL", "https://api.openai.com/v1")
 
 # brand_id becomes a path segment under base_dir (provision_tenant) -- it
 # must be a plain slug, never a path (no '/', no '..', no leading '.').
@@ -75,6 +83,12 @@ def _build_config_yaml() -> dict:
         "model": {
             "default": DEFAULT_MODEL,
             "base_url": DEFAULT_BASE_URL,
+            # "openai-api" is the registered provider id in
+            # hermes_cli/auth.py:PROVIDER_REGISTRY (reads OPENAI_API_KEY,
+            # defaults to https://api.openai.com/v1). Plain "openai" is NOT
+            # a registered provider or alias -- resolve_provider() raises
+            # AuthError("Unknown provider 'openai'") for it.
+            "provider": "openai-api",
         },
         "memory": {
             "memory_enabled": True,
