@@ -81,10 +81,11 @@ This directly satisfies: **memory L5** (now + brand's past + rules), **eval L5**
 - ✅ Tenancy / profile / `render_home` — built + reviewed.
 - ✅ Worker + worker_pool (callbacks → JSON-lines) — dryrun-tested; **no live LLM run yet**.
 - ✅ Personas (orchestrator, brand_strategist) — drafted.
-- ✅ Convex schema + tenant-scoped functions (R7) + Password-auth wiring (`auth.ts`/`http.ts`) — code; **not deployed**; needs `npx convex dev` + JWT keys.
-- ✅ auth.py (JWKS verify) + FastAPI control plane + SSE — built, **57 tests green**; under **security review** (auth is critical).
-  - Routes: `POST /v1/brands`, `GET /v1/brands/{id}`, `POST /v1/brands/{id}/onboard`, `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/stream` (SSE).
-- ❌ Live LLM run, real published output, observability UI, eval loop, mgmt UI, live memory.
+- ✅ Convex — **LIVE on a local deployment** (`127.0.0.1:3210`, site `:3211`). Functions deployed + verified via MCP (`tables`/`functionSpec`); `@convex-dev/auth` JWKS serving (RS256, `curl` 200); **R7 fail-closed verified live**; `CONVEX_*` written to root `.env`. Backend runs via `cd convex && CONVEX_AGENT_MODE=anonymous npx convex dev` (must stay up). Cloud/dashboard = one `npx convex login` later.
+- ✅ auth.py (JWKS verify) + FastAPI control plane + SSE — built, **59 tests green**; **security-reviewed: auth sound, no bypass** (alg pinned, iss/aud/exp enforced, fail-closed, R7 verified).
+  - Routes: `POST /v1/brands`, `GET /v1/brands/{id}`, `POST /v1/brands/{id}/onboard`, `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/stream` (SSE). Documented in `API.md` + `BACKEND_HANDOFF.md`.
+- ✅ **FIRST LIVE LLM RUN WORKS** (2026-07-12) — Brand Strategist researched a real URL via web tools and wrote brand DNA to `AGENTS.md` on **OpenAI `gpt-5-mini`** (`openai-api` provider), streamed step/text/final events. First real completed task → off 0.
+- ❌ Still pending: **published** real output (the 20x post), observability UI, eval loop, mgmt UI, live Honcho verification, Convex→Cloud, the remaining specialist agents.
 
 ---
 
