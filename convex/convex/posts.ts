@@ -1,6 +1,10 @@
-// Tenant-scoped queries for generated posts.
+// convex/posts.ts
+//
+// Tenant-scoped mutation/query for the `posts` table. Content jobs create
+// durable post rows through `createPost`; dashboard/API consumers read them
+// through tenant-scoped list queries.
 
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 async function requireTenantId(ctx: { auth: { getUserIdentity: () => Promise<{ subject: string } | null> } }) {
@@ -30,6 +34,58 @@ const postObject = v.object({
   status: postStatus,
   publishedAt: v.optional(v.number()),
   createdAt: v.number(),
+});
+
+export const createPost = mutation({
+  args: {
+    brandId: v.id("brands"),
+    channel: v.string(),
+    body: v.string(),
+    campaignId: v.optional(v.id("campaigns")),
+  },
+  returns: v.id("posts"),
+  handler: async (ctx, args) => {
+    const tenantId = await requireTenantId(ctx);
+
+    const brand = await ctx.db.get("brands", args.brandId);
+    if (brand === null || brand.tenantId !== tenantId) {
+      throw new Error("Brand not found for this tenant");
+    }
+
+    if (args.campaignId !== undefined) {
+      const campaign = await ctx.db.get("campaigns", args.campaignId);
+      if (campaign === null || campaign.tenantId !== tenantId) {
+        throw new Error("Campaign not found for this tenant");
+      }
+    }
+
+    return await ctx.db.insert("posts", {
+      tenantId,
+      brandId: args.brandId,
+      campaignId: args.campaignId,
+      channel: args.channel,
+      body: args.body,
+      status: "draft",
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const listPostsForBrand = query({
+  args: {
+    brandId: v.id("brands"),
+  },
+  returns: v.array(postObject),
+  handler: async (ctx, args) => {
+    const tenantId = await requireTenantId(ctx);
+
+    return await ctx.db
+      .query("posts")
+      .withIndex("by_tenant_and_brand", (q) =>
+        q.eq("tenantId", tenantId).eq("brandId", args.brandId),
+      )
+      .collect();
+  },
 });
 
 export const listPosts = query({

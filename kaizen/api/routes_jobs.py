@@ -4,9 +4,20 @@
 (FOUNDATION_SLICE.md section 6a): it tails the job's per-job asyncio.Queue
 (fed by the onboarding job's ``on_event`` callback in
 ``routes_brands.py``), formatting each event as a ``text/event-stream``
-``data:`` line, and terminates the stream after a ``final`` or ``error``
-event (the two terminal event types the worker's JSON-lines protocol
-defines -- see ``kaizen/worker.py``).
+``data:`` line, and terminates the stream after a job-level ``job_complete``
+or ``job_failed`` event.
+
+Note this is deliberately a JOB-level terminal, not the worker's own
+``final``/``error`` event (see ``kaizen/worker.py``): each job's
+post-processing (parsing AGENTS.md / recording content / Convex sync /
+``job_store.mark_done``) runs *after* ``submit_turn`` observes the worker's
+``final``/``error`` event, so ending the stream on the worker event let a
+client race ahead of ``mark_done`` and see a stale ``running`` status from
+``GET /v1/jobs/{id}``. ``routes_brands.py``/``routes_content.py`` now push an
+explicit ``job_complete``/``job_failed`` event (recorded via
+``job_store.append_event`` so stream replay/reconnect still works) only once
+the job is truly terminal; the worker's own ``final``/``error`` events are
+ordinary streamed content events as far as this endpoint is concerned.
 """
 
 from __future__ import annotations
@@ -23,7 +34,7 @@ from kaizen.api.job_store import STREAM_DONE, Job, JobStore
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 
-_TERMINAL_EVENT_TYPES = ("final", "error")
+_TERMINAL_EVENT_TYPES = ("job_complete", "job_failed")
 
 
 class JobStatusResponse(BaseModel):

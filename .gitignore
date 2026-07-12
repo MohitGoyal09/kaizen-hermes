@@ -113,6 +113,11 @@ docs/superpowers/*
 # logs, and per-session caches are never artifacts of the codebase.
 .hermes/
 
+# Kaizen's per-tenant profiles dir (KAIZEN_PROFILES_DIR, default ./.kaizen/profiles
+# -- see kaizen/api/deps.py). Runtime-provisioned HERMES_HOME per brand_id, written
+# at request time by provision_tenant/onboarding jobs; never a code artifact.
+.kaizen/
+
 # Desktop/bootstrap install marker written into the managed checkout root by the
 # bootstrap installer. It is Hermes-managed runtime state, never a code change —
 # ignore it so `hermes update`'s `git stash push --include-untracked` does not
