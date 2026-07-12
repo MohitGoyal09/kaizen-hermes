@@ -1,0 +1,18 @@
+{
+  "name": "kaizen-convex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Convex data + auth layer for Kaizen (multi-tenant AI marketing agency on Hermes). Isolated from the root Hermes package.json on purpose.",
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "convex": "^1.31.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.6.3"
+  }
+}
