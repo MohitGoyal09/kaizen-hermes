@@ -254,3 +254,60 @@ class TestOnboardingJobAndStream:
         headers_b = _auth_headers(rsa_keypair, sub="tenant-b")
         response = client.get(f"/v1/jobs/{job_id}", headers=headers_b)
         assert response.status_code == 403
+
+    def test_stream_of_job_belonging_to_other_tenant_returns_403(
+        self, client: TestClient, rsa_keypair
+    ) -> None:
+        """Regression: GET /v1/jobs/{id}/stream (the SSE endpoint) must
+        enforce the same tenant-ownership check as the job-status endpoint.
+        An unauthenticated or cross-tenant SSE subscription must never
+        leak another tenant's run events."""
+        headers_a = _auth_headers(rsa_keypair, sub="tenant-a")
+        create_resp = client.post(
+            "/v1/brands", json={"url": "https://acme.example.com"}, headers=headers_a
+        )
+        brand_id = create_resp.json()["brand_id"]
+        onboard_resp = client.post(f"/v1/brands/{brand_id}/onboard", headers=headers_a)
+        job_id = onboard_resp.json()["job_id"]
+
+        # Drain tenant-a's own stream to completion first so the background
+        # job doesn't leak into other tests.
+        with client.stream(
+            "GET", f"/v1/jobs/{job_id}/stream", headers=headers_a
+        ) as stream_resp:
+            assert stream_resp.status_code == 200
+            for raw_line in stream_resp.iter_lines():
+                if raw_line.startswith("data:"):
+                    payload = json.loads(raw_line[len("data:"):].strip())
+                    if payload["type"] in ("final", "error"):
+                        break
+
+        headers_b = _auth_headers(rsa_keypair, sub="tenant-b")
+        response = client.get(f"/v1/jobs/{job_id}/stream", headers=headers_b)
+        assert response.status_code == 403
+
+    def test_stream_without_authentication_returns_401(
+        self, client: TestClient, rsa_keypair
+    ) -> None:
+        """Regression: the SSE endpoint must require a valid bearer token,
+        not just job-ownership -- an unauthenticated request must never
+        reach the point of streaming any job's events."""
+        headers_a = _auth_headers(rsa_keypair, sub="tenant-a")
+        create_resp = client.post(
+            "/v1/brands", json={"url": "https://acme.example.com"}, headers=headers_a
+        )
+        brand_id = create_resp.json()["brand_id"]
+        onboard_resp = client.post(f"/v1/brands/{brand_id}/onboard", headers=headers_a)
+        job_id = onboard_resp.json()["job_id"]
+
+        with client.stream(
+            "GET", f"/v1/jobs/{job_id}/stream", headers=headers_a
+        ) as stream_resp:
+            for raw_line in stream_resp.iter_lines():
+                if raw_line.startswith("data:"):
+                    payload = json.loads(raw_line[len("data:"):].strip())
+                    if payload["type"] in ("final", "error"):
+                        break
+
+        response = client.get(f"/v1/jobs/{job_id}/stream")
+        assert response.status_code == 401
