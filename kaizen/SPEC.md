@@ -80,6 +80,26 @@ finally:
 
 **Isolation guarantee we will demo:** two brands running at the same time, and we open both SQLite stores live to show no shared rows.
 
+### Auth and tenant resolution (LOCKED)
+
+1. User logs in on the frontend, backend issues a signed session token (JWT or httpOnly session cookie).
+2. Every API request carries the token. FastAPI validates it and derives `tenant_id` (the user's brand) from the token claims **server-side**.
+3. The client **never** sends a trusted `user_id`/`brand_id`. If the frontend includes one, it is treated only as a hint that must equal the token's tenant, else `403`. Auth identity comes only from the validated token.
+4. FastAPI runs the agent inside `set_hermes_home_override(profiles/<tenant_id>)`. The agent therefore has access to exactly one tenant's memory, skills, tools, and credentials. **Brand-specificity is enforced by scope, not by prompting the agent to behave.**
+
+Hackathon simplification: **one user = one brand = one tenant.** `user_id` and `brand_id` are the same key for the demo.
+
+### Tenancy rules (consolidated, LOCKED)
+
+- **R1** One profile (`HERMES_HOME`) per tenant = physical isolation wall.
+- **R2** `tenant_id` on every Postgres row; all queries filter by it.
+- **R3** Tool/MCP credentials (the brand's X account, etc.) scoped per tenant, never shared.
+- **R4** Subagents share the tenant's memory; they are not separate profiles.
+- **R5** No Hermes call outside `set_hermes_home_override(tenant)`; always `reset` after.
+- **R6** Nothing reaches Hermes except through FastAPI.
+- **R7** `tenant_id` is derived from the validated auth token only, never from a client-supplied field. ("Frontend sends a user_id we trust" = anyone reads anyone's data. Forbidden.)
+- **R8** (optional) Cloud memory (Honcho / Hindsight) = one workspace per tenant, keyed server-side, layered *inside* the wall. An enhancement, not the wall.
+
 ---
 
 ## 5. API layout
