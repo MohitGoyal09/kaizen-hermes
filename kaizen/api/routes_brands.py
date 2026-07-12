@@ -32,7 +32,7 @@ router = APIRouter(prefix="/v1/brands", tags=["brands"])
 
 _PERSONAS_DIR = Path(__file__).resolve().parents[1] / "personas"
 _BRAND_STRATEGIST_PERSONA = _PERSONAS_DIR / "brand_strategist.md"
-_ONBOARDING_TOOLSETS = ["file"]
+_ONBOARDING_TOOLSETS = ["web", "file"]
 
 
 class CreateBrandRequest(BaseModel):
@@ -175,10 +175,12 @@ def _run_onboarding_job(
             persona_path=_BRAND_STRATEGIST_PERSONA,
             user_message=(
                 f"Onboard the brand at {record.url}. This is an unattended backend job: "
-                "do not ask follow-up questions or wait for confirmation. If external "
-                "research is unavailable, use clearly labeled reasonable defaults. "
-                "Read AGENTS.md, replace the Kaizen brand-DNA block with a complete "
-                "first-pass profile, and call write_file before your final response."
+                "do not ask follow-up questions or wait for confirmation. Research the "
+                "site with your web tools; infer positioning, voice/tone, audience, do's, "
+                "don'ts, guardrails and channels (use clearly labeled reasonable defaults "
+                "if research is unavailable). Then read AGENTS.md, replace the Kaizen "
+                "brand-DNA block with a complete first-pass profile, and call write_file "
+                "before your final response."
             ),
             toolsets=_ONBOARDING_TOOLSETS,
             on_event=on_event,
@@ -199,12 +201,15 @@ def _run_onboarding_job(
             convex_client.update_job_status(
                 job.job_id, "done", result=result, bearer_token=bearer_token
             )
+        terminal = {"type": "job_complete", "data": {"status": "done", "brand_id": record.brand_id}}
+        job_store.append_event(job, terminal)
+        loop.call_soon_threadsafe(job.queue.put_nowait, terminal)
     except Exception as exc:  # noqa: BLE001 - job must always terminate, never hang the stream
         job_store.mark_failed(job, str(exc))
         _update_convex_job_failure(job.job_id, str(exc), bearer_token)
-        error_event = {"type": "error", "data": {"message": str(exc)}}
-        job_store.append_event(job, error_event)
-        loop.call_soon_threadsafe(job.queue.put_nowait, error_event)
+        terminal = {"type": "job_failed", "data": {"message": str(exc)}}
+        job_store.append_event(job, terminal)
+        loop.call_soon_threadsafe(job.queue.put_nowait, terminal)
     finally:
         loop.call_soon_threadsafe(job.queue.put_nowait, STREAM_DONE)
 

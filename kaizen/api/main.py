@@ -20,10 +20,12 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from kaizen.api.brand_store import BrandStore
+from kaizen.api.content_store import ContentStore
 from kaizen.api.job_store import JobStore
 
 brand_store = BrandStore()
 job_store = JobStore()
+content_store = ContentStore()
 
 app = FastAPI(title="Kaizen Control Plane", version="0.1.0")
 
@@ -32,9 +34,10 @@ def _register_routes(fastapi_app: FastAPI) -> None:
     # Imported here (not at module top) so `import kaizen.api.main` always
     # picks up whatever brand_store/job_store exist at call time -- matters
     # for tests that reload this module after changing env vars.
-    from kaizen.api import routes_brands, routes_jobs
+    from kaizen.api import routes_brands, routes_content, routes_jobs
 
     fastapi_app.include_router(routes_brands.router)
+    fastapi_app.include_router(routes_content.router)
     fastapi_app.include_router(routes_jobs.router)
 
 
