@@ -19,9 +19,19 @@
 // without a migration.
 
 import { defineSchema, defineTable } from "convex/server";
+import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // ---------------------------------------------------------------------
+  // authTables — users/sessions/accounts/etc. tables required by
+  // @convex-dev/auth (convex/auth.ts). Verified against current docs
+  // (Context7 `/get-convex/convex-auth`, docs/pages/setup.mdx, 2026-07-12):
+  // without these tables, convexAuth's Password provider has nowhere to
+  // persist identities and every sign-in call throws.
+  // ---------------------------------------------------------------------
+  ...authTables,
+
   // ---------------------------------------------------------------------
   // brands — one row per brand a tenant owns/onboarded.
   // ---------------------------------------------------------------------
