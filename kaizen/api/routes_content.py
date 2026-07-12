@@ -31,13 +31,20 @@ from kaizen.api.brand_store import BrandRecord, BrandStore
 from kaizen.api.content_store import ContentStore
 from kaizen.api.convex_sync import sync_post
 from kaizen.api.job_store import STREAM_DONE, Job, JobStore
+from kaizen.toolsets_for import toolsets_for
 from kaizen.worker_pool import submit_turn
 
 router = APIRouter(prefix="/v1/brands", tags=["content"])
 
 _PERSONAS_DIR = Path(__file__).resolve().parents[1] / "personas"
 _CONTENT_CREATOR_PERSONA = _PERSONAS_DIR / "content_creator.md"
-_CONTENT_TOOLSETS = ["file", "web"]
+# The Content Creator drafts from brand DNA already written to
+# AGENTS.md/SOUL.md during onboarding, not fresh research -- so it stays on
+# the baseline web+file toolsets from kaizen.toolsets_for rather than
+# preferring Linkup (see toolsets_for.py's _LINKUP_PREFERRING_ROLES
+# docstring). Routed through the shared helper anyway so this stays in sync
+# if that call changes later, and so both specialist routes share one
+# source of truth for toolset selection.
 _CONTENT_LATEST_FILENAME = "content_latest.md"
 _DEFAULT_CHANNEL = "social_post"
 
@@ -125,7 +132,7 @@ def _run_content_job(
             home=record.home,
             persona_path=_CONTENT_CREATOR_PERSONA,
             user_message=_build_user_message(request_body.brief, request_body.format),
-            toolsets=_CONTENT_TOOLSETS,
+            toolsets=toolsets_for("content_creator"),
             on_event=on_event,
         )
 

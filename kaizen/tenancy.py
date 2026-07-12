@@ -70,6 +70,45 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _REPO_SKILLS_DIR = _REPO_ROOT / "skills"
 
 
+def _linkup_mcp_block() -> dict | None:
+    """Build the ``mcp_servers.linkup`` entry, or ``None`` if unconfigured.
+
+    Gated on ``LINKUP_API_KEY`` (read at call time, not import time, so
+    tests can monkeypatch it per-test): absent the key, this returns
+    ``None`` and the caller omits ``linkup`` from ``mcp_servers`` entirely
+    -- we never want a broken/empty MCP server entry pointing at a command
+    that will fail to authenticate.
+
+    Schema matches ``cli-config.yaml.example``'s ``mcp_servers:`` section
+    exactly (``command``/``args``/``env`` -- same shape as that file's
+    ``github`` example, which also passes a secret via ``env:`` rather than
+    a bare CLI arg). Per CODE_GROUNDED_PLAN.md, this entry becomes toolset
+    ``mcp-linkup``, which ``kaizen.toolsets_for.toolsets_for`` adds to a
+    specialist's ``enabled_toolsets`` under the same env-var gate.
+
+    ASSUMPTION (best-effort, not live-verified -- no LINKUP_API_KEY
+    available in this environment to actually launch the server): the
+    official Linkup MCP server is the ``linkup-mcp-server`` npm package
+    (https://github.com/LinkupPlatform/linkup-mcp-server,
+    https://docs.linkup.so/pages/integrations/mcp/mcp), run via
+    ``npx -y linkup-mcp-server``. Linkup's own docs show the API key most
+    commonly passed as a CLI arg (``apiKey=...``), but the package's README
+    also documents ``LINKUP_API_KEY`` as a supported environment variable
+    for local/stdio use -- we deliberately use the env-var form so the raw
+    key is never written as a literal string into this tenant's
+    ``config.yaml`` on disk. If Linkup ships a different official
+    entrypoint later, update only this function.
+    """
+    api_key = os.environ.get("LINKUP_API_KEY")
+    if not api_key:
+        return None
+    return {
+        "command": "npx",
+        "args": ["-y", "linkup-mcp-server"],
+        "env": {"LINKUP_API_KEY": api_key},
+    }
+
+
 def _build_config_yaml() -> dict:
     """Build the config.yaml mapping for a tenant HERMES_HOME.
 
@@ -78,7 +117,16 @@ def _build_config_yaml() -> dict:
     (``agent_init.py:1338-1364``); ``model.default``/``model.base_url`` are
     read by ``hermes_cli/config.py``'s model resolution (see
     ``cli-config.yaml.example``).
+
+    ``mcp_servers.linkup`` is added only when ``LINKUP_API_KEY`` is set in
+    the environment (see ``_linkup_mcp_block``); otherwise ``mcp_servers``
+    stays ``{}`` exactly as before this was wired up.
     """
+    mcp_servers: dict = {}
+    linkup_block = _linkup_mcp_block()
+    if linkup_block is not None:
+        mcp_servers["linkup"] = linkup_block
+
     return {
         "model": {
             "default": DEFAULT_MODEL,
@@ -95,7 +143,7 @@ def _build_config_yaml() -> dict:
             "provider": "honcho",
             "user_profile_enabled": True,
         },
-        "mcp_servers": {},
+        "mcp_servers": mcp_servers,
     }
 
 
