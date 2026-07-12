@@ -129,7 +129,8 @@ export default defineSchema({
   })
     .index("by_tenant", ["tenantId"])
     .index("by_jobId", ["jobId"])
-    .index("by_tenant_and_status", ["tenantId", "status"]),
+    .index("by_tenant_and_status", ["tenantId", "status"])
+    .index("by_tenant_and_brand", ["tenantId", "brandId"]),
 
   // ---------------------------------------------------------------------
   // eval_runs — predicted vs. actual performance scoring for a post

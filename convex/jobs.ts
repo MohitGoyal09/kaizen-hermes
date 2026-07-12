@@ -138,11 +138,11 @@ export const listJobsForBrand = query({
       return [];
     }
 
-    const jobs = await ctx.db
+    return await ctx.db
       .query("jobs")
-      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenant_and_brand", (q) =>
+        q.eq("tenantId", tenantId).eq("brandId", args.brandId),
+      )
       .collect();
-
-    return jobs.filter((job) => job.brandId === args.brandId);
   },
 });

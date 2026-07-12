@@ -39,7 +39,8 @@ not part of this commit since they are normally machine-generated).
 
 ## Auth: what FastAPI needs (read this before writing `kaizen/auth.py`)
 
-Convex Auth (`auth.config.ts`) is configured as:
+**Status: not wired yet.** `auth.config.ts` currently only declares that this
+deployment trusts its own origin as an OIDC issuer:
 
 ```ts
 {
@@ -47,10 +48,23 @@ Convex Auth (`auth.config.ts`) is configured as:
 }
 ```
 
-`CONVEX_SITE_URL` is this deployment's HTTP Actions origin, shaped like
-`https://<deployment-name>.convex.site` (distinct from the client
-`CONVEX_URL`, which ends in `.convex.cloud`). Every Convex deployment serves
-OIDC discovery and JWKS at well-known paths under that origin:
+Verified against current Convex Auth docs (Context7 `/get-convex/convex-auth`,
+2026-07-12): `auth.config.ts` alone does not make a deployment issue tokens or
+serve JWKS. That requires three more pieces, none of which are in this commit:
+
+1. `@convex-dev/auth` + `@auth/core` added to `convex/package.json`.
+2. `convex/auth.ts` calling `convexAuth({ providers: [...] })` with an actual
+   sign-in method chosen (password / magic link / OAuth — a product decision
+   for a later commit).
+3. `convex/http.ts` calling `auth.addHttpRoutes(http)` — this is what mounts
+   the `/.well-known/openid-configuration` and `/.well-known/jwks.json` HTTP
+   routes. Without it those paths 404 and `ctx.auth.getUserIdentity()` always
+   returns `null` (every function below fails closed as "Unauthenticated",
+   which is safe but not yet usable end-to-end).
+
+Once wired, `CONVEX_SITE_URL` (this deployment's HTTP Actions origin, shaped
+like `https://<deployment-name>.convex.site`, distinct from the client
+`CONVEX_URL` which ends in `.convex.cloud`) will serve:
 
 ```
 Issuer                : {CONVEX_SITE_URL}
