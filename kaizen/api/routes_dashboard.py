@@ -46,6 +46,15 @@ _CHANNEL_LABELS = {
     "linkedin": "LinkedIn",
 }
 
+# Channels the publish pipeline (Composio, see routes_publish.py) actually
+# supports today. GET /v1/channels always offers at least these, regardless
+# of what a brand's onboarding profile happened to record in `channels` --
+# a brand with an empty/missing `channels` list must still be able to pick a
+# channel and create a campaign (the "no channels returned" demo blocker).
+# LinkedIn is primary/first: it's the one with a live Composio connection.
+_SUPPORTED_CHANNELS: tuple[str, ...] = ("linkedin", "x")
+_CONNECTED_CHANNELS: frozenset[str] = frozenset({"linkedin"})
+
 
 def _web_status(status: str | None) -> str:
     if status == "active":
@@ -72,12 +81,18 @@ def _voice_list(voice_tone: str) -> list[str]:
 
 def _channel_response(channel: str) -> dict[str, Any]:
     label = _CHANNEL_LABELS.get(channel, channel.replace("_", " ").title())
+    if channel in _CONNECTED_CHANNELS:
+        status = "connected"
+        description = f"{label} is connected via Composio -- posts publish live."
+    else:
+        status = "draft_only"
+        description = f"Draft generation is available for {label}."
     return {
         "id": channel,
         "label": label,
-        "status": "draft_only",
+        "status": status,
         "health": "healthy",
-        "description": f"Draft generation is available for {label}.",
+        "description": description,
     }
 
 
@@ -653,6 +668,27 @@ def get_current_brand(
     )
 
 
+def _available_channels(brand: dict[str, Any] | None) -> list[str]:
+    """The channel ids to offer for campaign creation / the Library.
+
+    No brand yet -> no channels (campaign creation isn't reachable without a
+    brand regardless; matches the existing "no brand" empty state). Once a
+    brand exists, always includes the publish-supported floor
+    (`_SUPPORTED_CHANNELS`, LinkedIn first) so campaign creation works even
+    when the brand's onboarding profile recorded no `channels` -- an empty
+    profile must not disable channel selection (the "no channels returned"
+    demo blocker). Any additional channels the brand's profile did record
+    (e.g. "blog", "telegram") are appended after, deduped.
+    """
+    if brand is None:
+        return []
+    ordered = list(_SUPPORTED_CHANNELS)
+    for channel in _channels_from_brand(brand):
+        if channel not in ordered:
+            ordered.append(channel)
+    return ordered
+
+
 @router.get("/channels")
 def list_channels(
     bearer_token: str = Depends(deps.require_bearer_token),
@@ -665,7 +701,7 @@ def list_channels(
         tenant_id=tenant_id,
         brand_store=brand_store,
     )
-    return [_channel_response(channel) for channel in _channels_from_brand(brand)]
+    return [_channel_response(channel) for channel in _available_channels(brand)]
 
 
 @router.get("/campaigns")
@@ -921,7 +957,7 @@ def get_orchestrator_workspace(
         "messages": [],
         "nextSteps": next_steps,
         "brand": brand,
-        "channels": [_channel_response(channel) for channel in _channels_from_brand(brand)],
+        "channels": [_channel_response(channel) for channel in _available_channels(brand)],
         "campaigns": campaigns,
         "posts": posts,
         "runs": runs,

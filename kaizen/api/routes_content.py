@@ -46,7 +46,12 @@ _CONTENT_CREATOR_PERSONA = _PERSONAS_DIR / "content_creator.md"
 # if that call changes later, and so both specialist routes share one
 # source of truth for toolset selection.
 _CONTENT_LATEST_FILENAME = "content_latest.md"
-_DEFAULT_CHANNEL = "social_post"
+# LinkedIn is the primary/connected publish channel (Composio, see
+# routes_publish.py) -- generated content defaults here so it always lands
+# in the Library tagged with a real, publishable channel instead of the
+# placeholder "social_post" that no channel-aware UI (channel filters,
+# "Post to LinkedIn" card) recognizes.
+_DEFAULT_CHANNEL = "linkedin"
 
 _NO_QUESTIONS_INSTRUCTION = (
     "Do not ask me any questions and do not wait for a reply -- this is an "
@@ -59,6 +64,11 @@ _NO_QUESTIONS_INSTRUCTION = (
 class CreateContentRequest(BaseModel):
     brief: str
     format: str | None = None
+    # The campaign's selected channel, when this content job is generating
+    # for a specific campaign (e.g. "linkedin", "x"). Defaults to the
+    # primary/connected channel so a request that omits it still tags the
+    # generated post with something the Library / publish flow can use.
+    channel: str | None = None
 
 
 class ContentJobResponse(BaseModel):
@@ -97,12 +107,14 @@ def _record_generated_content(
         return
 
     body = content_path.read_text(encoding="utf-8")
-    synced = sync_post(record.brand_id, _DEFAULT_CHANNEL, body)
+    channel = request_body.channel or _DEFAULT_CHANNEL
+    synced = sync_post(record.brand_id, channel, body)
     content_store.record(
         brand_id=record.brand_id,
         job_id=job.job_id,
         brief=request_body.brief,
         format=request_body.format,
+        channel=channel,
         body=body,
         synced_to_convex=synced,
     )

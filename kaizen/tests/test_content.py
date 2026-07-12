@@ -214,6 +214,61 @@ class TestContentJobAndStream:
         assert status_resp.status_code == 200
         assert status_resp.json()["status"] == "done"
 
+    def test_content_defaults_to_linkedin_channel(
+        self, client: TestClient, rsa_keypair
+    ) -> None:
+        """A content job that doesn't specify a channel must still record
+        LinkedIn (not the old placeholder "social_post") -- generated posts
+        need a real, frontend-recognized channel so the Library groups them
+        and renders the "Post to LinkedIn" card.
+
+        KAIZEN_WORKER_DRYRUN never writes content_latest.md (see the worker
+        dryrun path), so ``_record_generated_content`` is exercised
+        directly here with a real file on disk instead of round-tripping
+        through the job stream.
+        """
+        import kaizen.api.routes_content as routes_content_module
+        from kaizen.api.brand_store import BrandStore
+        from kaizen.api.content_store import ContentStore
+        from kaizen.api.job_store import JobStore
+
+        headers = _auth_headers(rsa_keypair, sub="tenant-a")
+        brand_id = _create_brand(client, headers)
+
+        from kaizen.api.main import brand_store
+
+        record = brand_store.get(brand_id)
+        assert record is not None
+        (record.home / routes_content_module._CONTENT_LATEST_FILENAME).write_text(
+            "Generated post body.", encoding="utf-8"
+        )
+
+        job_store = JobStore()
+        job = job_store.create(tenant_id="tenant-a", job_type="content", brand_id=brand_id)
+        content_store = ContentStore()
+        request_body = routes_content_module.CreateContentRequest(brief="announce pricing")
+
+        routes_content_module._record_generated_content(content_store, record, job, request_body)
+
+        stored = content_store.get(brand_id)
+        assert stored is not None
+        assert stored.channel == "linkedin"
+
+    def test_content_channel_is_honored_when_provided(
+        self, client: TestClient, rsa_keypair
+    ) -> None:
+        """A campaign's selected channel (e.g. "x") should flow through to
+        the recorded post instead of being forced to the default."""
+        headers = _auth_headers(rsa_keypair, sub="tenant-a")
+        brand_id = _create_brand(client, headers)
+
+        response = client.post(
+            f"/v1/brands/{brand_id}/content",
+            json={"brief": "announce our new pricing tier", "channel": "x"},
+            headers=headers,
+        )
+        assert response.status_code == 202
+
     def test_job_reaches_done_status(self, client: TestClient, rsa_keypair) -> None:
         headers = _auth_headers(rsa_keypair, sub="tenant-a")
         brand_id = _create_brand(client, headers)

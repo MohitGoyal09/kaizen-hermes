@@ -24,6 +24,7 @@ class ContentRecord:
     brief: str
     format: str | None
     body: str
+    channel: str = "linkedin"
     synced_to_convex: bool = False
 
 
@@ -43,6 +44,7 @@ class ContentStore:
         brief: str,
         format: str | None,
         body: str,
+        channel: str = "linkedin",
         synced_to_convex: bool = False,
     ) -> ContentRecord:
         record = ContentRecord(
@@ -51,6 +53,7 @@ class ContentStore:
             brief=brief,
             format=format,
             body=body,
+            channel=channel,
             synced_to_convex=synced_to_convex,
         )
         self._content[brand_id] = record
