@@ -14,6 +14,24 @@ Hermes gives the project its agent runtime: tool use, memory, skills, messaging 
 
 ---
 
+## GrowthX Hermes Buildathon Proof
+
+**How we used Hermes:** Hermes as the base harness.
+
+This repository is the proof. We did not start from a blank app; we cloned the Hermes Agent codebase and built the Kaizen AI marketing-agency layer on top of it.
+
+What a mentor should check on the floor:
+
+1. **Hermes runtime is still present at the repo root.** The original Hermes structure is here: `agent/`, `hermes_cli/`, `gateway/`, `skills/`, `tools/`, `web/`, `apps/`, `docs/`, `tests/`, `pyproject.toml`, and the Hermes CLI/runtime files.
+2. **Kaizen-specific project work lives under `kaizen/`.** Start with [kaizen/SPEC.md](kaizen/SPEC.md), [kaizen/BUILD_PLAN.md](kaizen/BUILD_PLAN.md), [kaizen/FEATURES_AND_AGENTS.md](kaizen/FEATURES_AND_AGENTS.md), [kaizen/CODE_GROUNDED_PLAN.md](kaizen/CODE_GROUNDED_PLAN.md), [kaizen/DEPLOYMENT.md](kaizen/DEPLOYMENT.md), and [kaizen/GETTING_STARTED.md](kaizen/GETTING_STARTED.md).
+3. **The product design maps directly onto Hermes capabilities.** Kaizen uses Hermes concepts for agent orchestration, skills, memory, subagents, tool/MCP use, scheduled work, messaging gateways, and per-brand tenant isolation through `HERMES_HOME`.
+4. **The intended user flow runs through Hermes.** Brand signup -> tenant Hermes profile -> Hermes worker -> specialist agents -> campaign drafts -> approval -> publish -> eval -> memory update.
+5. **We disclosed the non-trivial base.** This is intentionally a Hermes-based project, not a hidden from-scratch clone.
+
+In short: **Hermes is not just inspiration. Hermes is the base runtime and harness that Kaizen builds on.**
+
+---
+
 ## What We Built
 
 - **Multi-tenant brand workspaces** - every brand gets isolated Hermes state through its own `HERMES_HOME`.
