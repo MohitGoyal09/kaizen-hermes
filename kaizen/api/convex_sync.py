@@ -27,10 +27,16 @@ identifying the tenant to ``ctx.auth.getUserIdentity()`` server-side.
 from __future__ import annotations
 
 import logging
+import os
+
+import httpx
+
 from kaizen.api import convex_client
 from kaizen.profile import BrandProfile
 
 logger = logging.getLogger("kaizen.api.convex_sync")
+
+_SYNC_TIMEOUT_SECONDS = 10.0
 
 def sync_brand_profile(brand_id: str, profile: BrandProfile, *, bearer_token: str | None = None) -> bool:
     """Best-effort reconciliation of ``profile`` into Convex's

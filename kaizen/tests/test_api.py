@@ -227,7 +227,15 @@ class TestDashboardApiCampaigns:
         assert current.json()["url"] == "https://acme.example.com"
         assert "positioning" in current.json()
         assert "voice" in current.json()
-        assert client.get("/v1/channels", headers=headers_a).json() == []
+
+        # A brand with no channels recorded in its onboarding profile must
+        # still offer the publish-supported channels (LinkedIn primary/
+        # connected, X second) so campaign creation isn't blocked on an
+        # empty profile.
+        channels = client.get("/v1/channels", headers=headers_a).json()
+        assert [channel["id"] for channel in channels] == ["linkedin", "x"]
+        assert channels[0]["status"] == "connected"
+        assert channels[1]["status"] == "draft_only"
 
         create_campaign = client.post(
             "/v1/campaigns",
@@ -268,6 +276,47 @@ class TestDashboardApiCampaigns:
         headers = _auth_headers(rsa_keypair, sub="tenant-no-brand")
         response = client.post("/v1/campaigns", json={"name": "Launch"}, headers=headers)
         assert response.status_code == 404
+
+
+class TestChannelsEndpoint:
+    """``GET /v1/channels`` must always offer the publish-supported
+    channels (LinkedIn, X) once a brand exists, regardless of what (if
+    anything) the brand's onboarding profile recorded -- this is the fix
+    for the "no channels were returned by the backend" demo blocker that
+    left the New Campaign page's Create button permanently disabled."""
+
+    def test_channels_shape_matches_frontend_channel_connection_type(
+        self, client: TestClient, rsa_keypair
+    ) -> None:
+        headers = _auth_headers(rsa_keypair, sub="tenant-channels")
+        client.post("/v1/brands", json={"url": "https://acme.example.com"}, headers=headers)
+
+        response = client.get("/v1/channels", headers=headers)
+        assert response.status_code == 200
+        channels = response.json()
+
+        assert len(channels) == 2
+        for channel in channels:
+            assert set(channel.keys()) >= {"id", "label", "status", "health", "description"}
+            assert channel["status"] in {"connected", "draft_only", "not_connected"}
+
+        linkedin, x = channels
+        assert linkedin == {
+            "id": "linkedin",
+            "label": "LinkedIn",
+            "status": "connected",
+            "health": "healthy",
+            "description": "LinkedIn is connected via Composio -- posts publish live.",
+        }
+        assert x["id"] == "x"
+        assert x["label"] == "X"
+        assert x["status"] == "draft_only"
+
+    def test_channels_empty_without_a_brand(self, client: TestClient, rsa_keypair) -> None:
+        headers = _auth_headers(rsa_keypair, sub="tenant-no-brand-channels")
+        response = client.get("/v1/channels", headers=headers)
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestGetBrandNotFound:
