@@ -26,13 +26,13 @@ from kaizen.api.convex_sync import sync_brand_profile
 from kaizen.api.job_store import STREAM_DONE, JobStore
 from kaizen.profile import BrandProfile, parse_agents
 from kaizen.tenancy import provision_tenant
+from kaizen.toolsets_for import toolsets_for
 from kaizen.worker_pool import submit_turn
 
 router = APIRouter(prefix="/v1/brands", tags=["brands"])
 
 _PERSONAS_DIR = Path(__file__).resolve().parents[1] / "personas"
 _BRAND_STRATEGIST_PERSONA = _PERSONAS_DIR / "brand_strategist.md"
-_ONBOARDING_TOOLSETS = ["web", "file"]
 
 
 class CreateBrandRequest(BaseModel):
@@ -182,7 +182,7 @@ def _run_onboarding_job(
                 "brand-DNA block with a complete first-pass profile, and call write_file "
                 "before your final response."
             ),
-            toolsets=_ONBOARDING_TOOLSETS,
+            toolsets=toolsets_for("brand_strategist"),
             on_event=on_event,
         )
 
