@@ -38,6 +38,8 @@ class Job:
     type: str
     status: JobStatus = "queued"
     brand_id: str | None = None
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
     events: list[dict[str, Any]] = field(default_factory=list)
     result: dict[str, Any] | None = None
     error: str | None = None
@@ -65,6 +67,9 @@ class JobStore:
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
 
+    def list_for_tenant(self, tenant_id: str) -> list[Job]:
+        return [job for job in self._jobs.values() if job.tenant_id == tenant_id]
+
     def append_event(self, job: Job, event: dict[str, Any]) -> None:
         """Record ``event`` on the job and enqueue it for any active SSE
         stream. Safe to call from a worker thread (only mutates a plain
@@ -75,14 +80,17 @@ class JobStore:
 
     def mark_running(self, job: Job) -> None:
         job.status = "running"
+        job.updated_at = now_ts()
 
     def mark_done(self, job: Job, result: dict[str, Any]) -> None:
         job.status = "done"
         job.result = result
+        job.updated_at = now_ts()
 
     def mark_failed(self, job: Job, error: str) -> None:
         job.status = "failed"
         job.error = error
+        job.updated_at = now_ts()
 
 
 def now_ts() -> float:

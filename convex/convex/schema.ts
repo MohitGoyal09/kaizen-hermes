@@ -83,6 +83,9 @@ export default defineSchema({
     brandId: v.id("brands"),
     name: v.string(),
     goal: v.optional(v.string()),
+    channels: v.optional(v.array(v.string())),
+    formats: v.optional(v.array(v.string())),
+    summary: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
       v.literal("active"),
@@ -90,6 +93,7 @@ export default defineSchema({
       v.literal("archived"),
     ),
     createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_tenant", ["tenantId"])
     .index("by_tenant_and_brand", ["tenantId", "brandId"]),

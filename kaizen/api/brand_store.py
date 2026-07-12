@@ -13,7 +13,8 @@ sync-back (``upsertBrandProfile``) is what makes brand DNA durable.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from kaizen.profile import BrandProfile
@@ -27,6 +28,7 @@ class BrandRecord:
     home: Path
     profile: BrandProfile
     status: str = "provisioned"
+    created_at: float = field(default_factory=time.time)
 
 
 class BrandStore:
@@ -49,6 +51,15 @@ class BrandStore:
 
     def get(self, brand_id: str) -> BrandRecord | None:
         return self._brands.get(brand_id)
+
+    def list_for_tenant(self, tenant_id: str) -> list[BrandRecord]:
+        return [record for record in self._brands.values() if record.tenant_id == tenant_id]
+
+    def current_for_tenant(self, tenant_id: str) -> BrandRecord | None:
+        records = self.list_for_tenant(tenant_id)
+        if not records:
+            return None
+        return max(records, key=lambda record: record.created_at)
 
     def update_profile(self, brand_id: str, profile: BrandProfile) -> None:
         record = self._brands.get(brand_id)

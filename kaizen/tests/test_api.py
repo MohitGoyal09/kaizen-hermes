@@ -77,6 +77,7 @@ def client(profiles_dir: Path, jwks_document, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("CONVEX_JWT_ISSUER", ISSUER)
     monkeypatch.setenv("CONVEX_JWT_AUDIENCE", AUDIENCE)
     monkeypatch.setenv("CONVEX_JWKS_URL", "https://example.invalid/.well-known/jwks.json")
+    monkeypatch.delenv("CONVEX_URL", raising=False)
 
     # Import after env vars are set so module-level config reads them fresh.
     # Reload deps first (module-level env-derived config + jwks_cache), then
@@ -88,11 +89,13 @@ def client(profiles_dir: Path, jwks_document, monkeypatch: pytest.MonkeyPatch) -
 
     import kaizen.api.deps as deps_module
     import kaizen.api.routes_brands as routes_brands_module
+    import kaizen.api.routes_dashboard as routes_dashboard_module
     import kaizen.api.routes_jobs as routes_jobs_module
     import kaizen.api.main as main_module
 
     importlib.reload(deps_module)
     importlib.reload(routes_brands_module)
+    importlib.reload(routes_dashboard_module)
     importlib.reload(routes_jobs_module)
     importlib.reload(main_module)
 
@@ -169,6 +172,104 @@ class TestCreateBrand:
         assert get_resp.json()["brand_id"] == brand_id
 
 
+class TestDashboardApiEmptyStates:
+    def test_authenticated_empty_states_return_without_dummy_data(
+        self, client: TestClient, rsa_keypair
+    ) -> None:
+        headers = _auth_headers(rsa_keypair, sub="tenant-empty")
+
+        assert client.get("/v1/current-brand", headers=headers).json() is None
+        assert client.get("/v1/channels", headers=headers).json() == []
+        assert client.get("/v1/campaigns", headers=headers).json() == []
+        assert client.get("/v1/posts", headers=headers).json() == []
+        assert client.get("/v1/runs", headers=headers).json() == []
+
+        analytics = client.get("/v1/analytics", headers=headers).json()
+        assert analytics["totals"]["campaigns"] == 0
+        assert analytics["totals"]["publishedPosts"] == 0
+        assert analytics["totals"]["posts"] == 0
+        assert analytics["totals"]["runs"] == 0
+        assert analytics["totals"]["impressions"] == 0
+        assert analytics["totals"]["clicks"] == 0
+        assert analytics["totals"]["costUsd"] == 0
+        assert analytics["channelPerformance"] == []
+        assert analytics["recentWins"] == []
+        assert analytics["by_channel"] == []
+
+        workspace = client.get("/v1/orchestrator-workspace", headers=headers).json()
+        assert workspace["model"] == "Kaizen backend"
+        assert workspace["messages"] == []
+        assert workspace["brand"] is None
+        assert workspace["channels"] == []
+        assert workspace["campaigns"] == []
+        assert workspace["posts"] == []
+        assert workspace["runs"] == []
+
+    def test_new_routes_require_authentication(self, client: TestClient) -> None:
+        response = client.get("/v1/current-brand")
+        assert response.status_code == 401
+
+
+class TestDashboardApiCampaigns:
+    def test_current_brand_and_campaign_round_trip_are_tenant_scoped(
+        self, client: TestClient, rsa_keypair
+    ) -> None:
+        headers_a = _auth_headers(rsa_keypair, sub="tenant-a")
+        create_brand = client.post(
+            "/v1/brands", json={"url": "https://acme.example.com"}, headers=headers_a
+        )
+        brand_id = create_brand.json()["brand_id"]
+
+        current = client.get("/v1/current-brand", headers=headers_a)
+        assert current.status_code == 200
+        assert current.json()["brand_id"] == brand_id
+        assert current.json()["id"] == brand_id
+        assert current.json()["url"] == "https://acme.example.com"
+        assert "positioning" in current.json()
+        assert "voice" in current.json()
+        assert client.get("/v1/channels", headers=headers_a).json() == []
+
+        create_campaign = client.post(
+            "/v1/campaigns",
+            json={
+                "title": "Launch plan",
+                "objective": "Announce the beta",
+                "channels": ["blog"],
+                "formats": ["short copy"],
+            },
+            headers=headers_a,
+        )
+        assert create_campaign.status_code == 201
+        campaign = create_campaign.json()
+        assert campaign["name"] == "Launch plan"
+        assert campaign["goal"] == "Announce the beta"
+        assert campaign["brand_id"] == brand_id
+        assert campaign["title"] == "Launch plan"
+        assert campaign["objective"] == "Announce the beta"
+        assert campaign["brandId"] == brand_id
+        assert campaign["channels"] == ["blog"]
+        assert campaign["formats"] == ["short copy"]
+
+        campaigns = client.get("/v1/campaigns", headers=headers_a).json()
+        assert [item["campaign_id"] for item in campaigns] == [campaign["campaign_id"]]
+
+        fetched = client.get(f"/v1/campaigns/{campaign['campaign_id']}", headers=headers_a)
+        assert fetched.status_code == 200
+        assert fetched.json()["campaign_id"] == campaign["campaign_id"]
+
+        headers_b = _auth_headers(rsa_keypair, sub="tenant-b")
+        assert client.get("/v1/campaigns", headers=headers_b).json() == []
+        cross_tenant = client.get(f"/v1/campaigns/{campaign['campaign_id']}", headers=headers_b)
+        assert cross_tenant.status_code == 403
+
+    def test_create_campaign_without_brand_returns_404(
+        self, client: TestClient, rsa_keypair
+    ) -> None:
+        headers = _auth_headers(rsa_keypair, sub="tenant-no-brand")
+        response = client.post("/v1/campaigns", json={"name": "Launch"}, headers=headers)
+        assert response.status_code == 404
+
+
 class TestGetBrandNotFound:
     def test_unknown_brand_id_returns_404(self, client: TestClient, rsa_keypair) -> None:
         headers = _auth_headers(rsa_keypair, sub="tenant-a")
@@ -234,6 +335,16 @@ class TestOnboardingJobAndStream:
         status_resp = client.get(f"/v1/jobs/{job_id}", headers=headers)
         assert status_resp.status_code == 200
         assert status_resp.json()["status"] == "done"
+
+        runs_resp = client.get("/v1/runs", headers=headers)
+        assert runs_resp.status_code == 200
+        runs = runs_resp.json()
+        assert any(run["run_id"] == job_id and run["status"] == "done" for run in runs)
+
+        run_detail = client.get(f"/v1/runs/{job_id}", headers=headers)
+        assert run_detail.status_code == 200
+        assert run_detail.json()["job_id"] == job_id
+        assert run_detail.json()["status"] == "done"
 
     def test_unknown_job_id_returns_404(self, client: TestClient, rsa_keypair) -> None:
         headers = _auth_headers(rsa_keypair, sub="tenant-a")

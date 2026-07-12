@@ -146,3 +146,16 @@ export const listJobsForBrand = query({
       .collect();
   },
 });
+
+export const listJobs = query({
+  args: {},
+  returns: v.array(jobObject),
+  handler: async (ctx) => {
+    const tenantId = await requireTenantId(ctx);
+
+    return await ctx.db
+      .query("jobs")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .collect();
+  },
+});
