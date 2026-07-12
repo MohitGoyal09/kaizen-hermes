@@ -19,6 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from kaizen.api import convex_client
 from kaizen.api import deps
 from kaizen.api.brand_store import BrandStore, new_brand_id
 from kaizen.api.convex_sync import sync_brand_profile
@@ -81,6 +82,7 @@ def _get_owned_brand_or_404_403(brand_store: BrandStore, brand_id: str, tenant_i
 @router.post("", status_code=201, response_model=CreateBrandResponse)
 def create_brand(
     body: CreateBrandRequest,
+    bearer_token: str = Depends(deps.require_bearer_token),
     tenant_id: str = Depends(deps.require_tenant),
 ) -> CreateBrandResponse:
     """Provision a new brand for the authenticated tenant.
@@ -93,11 +95,27 @@ def create_brand(
     """
     from kaizen.api.main import brand_store  # local import: avoids a cycle with main.py
 
-    brand_id = new_brand_id()
+    try:
+        brand_id = (
+            convex_client.create_brand(body.url, bearer_token=bearer_token)
+            if convex_client.is_convex_configured()
+            else new_brand_id()
+        )
+    except convex_client.ConvexAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     profile = _skeleton_profile(brand_id, body.url)
     home = provision_tenant(brand_id, profile, base_dir=deps.KAIZEN_PROFILES_DIR)
 
     record = brand_store.create(tenant_id=tenant_id, url=body.url, home=home, profile=profile)
+
+    if convex_client.is_convex_configured():
+        try:
+            convex_client.update_brand_status(
+                record.brand_id, "provisioned", bearer_token=bearer_token
+            )
+        except convex_client.ConvexAPIError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return CreateBrandResponse(brand_id=record.brand_id, home=str(record.home), status=record.status)
 
@@ -116,7 +134,23 @@ def get_brand(brand_id: str, tenant_id: str = Depends(deps.require_tenant)) -> B
     )
 
 
-def _run_onboarding_job(job_store: JobStore, brand_store: BrandStore, job, record, loop: asyncio.AbstractEventLoop) -> None:
+def _update_convex_job_failure(job_id: str, error: str, bearer_token: str) -> None:
+    if not convex_client.is_convex_configured():
+        return
+    try:
+        convex_client.update_job_status(job_id, "failed", error=error, bearer_token=bearer_token)
+    except convex_client.ConvexAPIError:
+        pass
+
+
+def _run_onboarding_job(
+    job_store: JobStore,
+    brand_store: BrandStore,
+    job,
+    record,
+    loop: asyncio.AbstractEventLoop,
+    bearer_token: str,
+) -> None:
     """Runs in a worker thread (via run_in_threadpool). Streams worker
     events into the job's asyncio.Queue via ``call_soon_threadsafe`` (the
     only safe way to touch an asyncio.Queue from a non-event-loop thread),
@@ -129,11 +163,23 @@ def _run_onboarding_job(job_store: JobStore, brand_store: BrandStore, job, recor
 
     try:
         job_store.mark_running(job)
+        if convex_client.is_convex_configured():
+            convex_client.update_brand_status(
+                record.brand_id, "onboarding", bearer_token=bearer_token
+            )
+            convex_client.update_job_status(job.job_id, "running", bearer_token=bearer_token)
+
         submit_turn(
             tenant_id=record.tenant_id,
             home=record.home,
             persona_path=_BRAND_STRATEGIST_PERSONA,
-            user_message=f"Onboard the brand at {record.url}.",
+            user_message=(
+                f"Onboard the brand at {record.url}. This is an unattended backend job: "
+                "do not ask follow-up questions or wait for confirmation. If external "
+                "research is unavailable, use clearly labeled reasonable defaults. "
+                "Read AGENTS.md, replace the Kaizen brand-DNA block with a complete "
+                "first-pass profile, and call write_file before your final response."
+            ),
             toolsets=_ONBOARDING_TOOLSETS,
             on_event=on_event,
         )
@@ -142,11 +188,20 @@ def _run_onboarding_job(job_store: JobStore, brand_store: BrandStore, job, recor
         updated_profile = parse_agents(agents_md_path.read_text(encoding="utf-8"))
         brand_store.update_profile(record.brand_id, updated_profile)
         brand_store.update_status(record.brand_id, "active")
-        sync_brand_profile(record.brand_id, updated_profile)
+        synced = sync_brand_profile(record.brand_id, updated_profile, bearer_token=bearer_token)
+        if convex_client.is_convex_configured() and not synced:
+            raise RuntimeError("Convex brand profile sync-back failed")
 
-        job_store.mark_done(job, {"brand_id": record.brand_id})
+        result = {"brand_id": record.brand_id}
+        job_store.mark_done(job, result)
+        if convex_client.is_convex_configured():
+            convex_client.update_brand_status(record.brand_id, "active", bearer_token=bearer_token)
+            convex_client.update_job_status(
+                job.job_id, "done", result=result, bearer_token=bearer_token
+            )
     except Exception as exc:  # noqa: BLE001 - job must always terminate, never hang the stream
         job_store.mark_failed(job, str(exc))
+        _update_convex_job_failure(job.job_id, str(exc), bearer_token)
         error_event = {"type": "error", "data": {"message": str(exc)}}
         job_store.append_event(job, error_event)
         loop.call_soon_threadsafe(job.queue.put_nowait, error_event)
@@ -158,6 +213,7 @@ def _run_onboarding_job(job_store: JobStore, brand_store: BrandStore, job, recor
 async def onboard_brand(
     brand_id: str,
     background_tasks: BackgroundTasks,
+    bearer_token: str = Depends(deps.require_bearer_token),
     tenant_id: str = Depends(deps.require_tenant),
 ) -> OnboardResponse:
     """Enqueue an onboarding job: runs the Brand Strategist persona via
@@ -177,10 +233,16 @@ async def onboard_brand(
     record = _get_owned_brand_or_404_403(brand_store, brand_id, tenant_id)
 
     job = job_store.create(tenant_id=tenant_id, job_type="onboarding", brand_id=brand_id)
+    if convex_client.is_convex_configured():
+        try:
+            convex_client.create_job(job.job_id, brand_id, bearer_token=bearer_token)
+        except convex_client.ConvexAPIError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     loop = asyncio.get_running_loop()
 
     background_tasks.add_task(
-        run_in_threadpool, _run_onboarding_job, job_store, brand_store, job, record, loop
+        run_in_threadpool, _run_onboarding_job, job_store, brand_store, job, record, loop, bearer_token
     )
 
     return OnboardResponse(job_id=job.job_id, status=job.status)

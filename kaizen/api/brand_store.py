@@ -26,7 +26,7 @@ class BrandRecord:
     url: str
     home: Path
     profile: BrandProfile
-    status: str = "provisioning"
+    status: str = "provisioned"
 
 
 class BrandStore:

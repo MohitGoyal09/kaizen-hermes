@@ -27,16 +27,10 @@ identifying the tenant to ``ctx.auth.getUserIdentity()`` server-side.
 from __future__ import annotations
 
 import logging
-import os
-
-import httpx
-
+from kaizen.api import convex_client
 from kaizen.profile import BrandProfile
 
 logger = logging.getLogger("kaizen.api.convex_sync")
-
-_SYNC_TIMEOUT_SECONDS = 5.0
-
 
 def sync_brand_profile(brand_id: str, profile: BrandProfile, *, bearer_token: str | None = None) -> bool:
     """Best-effort reconciliation of ``profile`` into Convex's
@@ -48,32 +42,13 @@ def sync_brand_profile(brand_id: str, profile: BrandProfile, *, bearer_token: st
     config must not fail the onboarding job whose real deliverable (the
     written AGENTS.md) already succeeded.
     """
-    convex_url = os.environ.get("CONVEX_URL", "").strip()
-    if not convex_url:
+    if not convex_client.is_convex_configured():
         logger.info("CONVEX_URL not configured; skipping brand profile sync-back for %s", brand_id)
         return False
 
-    payload = {
-        "path": "profile:upsertBrandProfile",
-        "args": {
-            "brandId": brand_id,
-            "positioning": profile.positioning,
-            "voiceTone": profile.voice_tone,
-            "audience": profile.audience,
-            "dos": profile.dos,
-            "donts": profile.donts,
-            "guardrails": profile.guardrails,
-            "channels": profile.channels,
-        },
-        "format": "json",
-    }
-    headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
-
     try:
-        with httpx.Client(timeout=_SYNC_TIMEOUT_SECONDS) as client:
-            response = client.post(f"{convex_url}/api/mutation", json=payload, headers=headers)
-            response.raise_for_status()
+        convex_client.upsert_brand_profile(brand_id, profile, bearer_token=bearer_token or "")
         return True
-    except httpx.HTTPError as exc:
+    except convex_client.ConvexAPIError as exc:
         logger.warning("Convex brand profile sync-back failed for %s: %s", brand_id, exc)
         return False

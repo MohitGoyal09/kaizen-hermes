@@ -41,6 +41,7 @@ export default defineSchema({
     url: v.string(),
     status: v.union(
       v.literal("provisioning"),
+      v.literal("provisioned"),
       v.literal("onboarding"),
       v.literal("active"),
       v.literal("archived"),

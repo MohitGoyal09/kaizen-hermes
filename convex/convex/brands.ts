@@ -63,6 +63,7 @@ export const getBrand = query({
       url: v.string(),
       status: v.union(
         v.literal("provisioning"),
+        v.literal("provisioned"),
         v.literal("onboarding"),
         v.literal("active"),
         v.literal("archived"),
@@ -98,6 +99,7 @@ export const listBrands = query({
       url: v.string(),
       status: v.union(
         v.literal("provisioning"),
+        v.literal("provisioned"),
         v.literal("onboarding"),
         v.literal("active"),
         v.literal("archived"),
@@ -119,6 +121,7 @@ export const updateBrandStatus = mutation({
     brandId: v.id("brands"),
     status: v.union(
       v.literal("provisioning"),
+      v.literal("provisioned"),
       v.literal("onboarding"),
       v.literal("active"),
       v.literal("archived"),

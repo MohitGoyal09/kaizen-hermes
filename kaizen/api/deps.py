@@ -67,6 +67,15 @@ def require_tenant(authorization: str | None = Header(default=None)) -> str:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+def require_bearer_token(authorization: str | None = Header(default=None)) -> str:
+    """Return the caller's bearer token for same-tenant downstream calls.
+
+    Routes pair this with ``require_tenant`` so the token has already been
+    verified before it is forwarded to Convex's HTTP API.
+    """
+    return _extract_bearer_token(authorization)
+
+
 def guard_tenant_hint(hinted_tenant_id: str, actual_tenant_id: str) -> None:
     """Raise HTTP 403 if a client-supplied tenant hint doesn't match the
     validated token's tenant. A client-supplied brand_id/tenant_id is only
